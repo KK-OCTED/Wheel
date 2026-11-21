@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>戰力轉盤</title>
+<style>
+:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);color-scheme:dark;--bg:#000;--card:#111;--line:#333;--tx:#eee;--mut:#999;--r:#e5484d;--b:#3b82f6;--gold:#f5c542}
+html{scroll-padding-top:env(safe-area-inset-top,0px);background:#000}
+*{box-sizing:border-box}
+body{margin:0;background:#000;color:var(--tx);font:15px/1.5 -apple-system,"PingFang TC","Noto Sans TC","Microsoft JhengHei",sans-serif;padding:12px;max-width:520px;margin:0 auto}
+h1{font-size:20px;text-align:center;letter-spacing:2px;margin:4px 0 12px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px}
+.row{display:flex;gap:10px}.row>div{flex:1}
+label{display:block;font-size:13px;margin-bottom:3px;font-weight:700}
+label.r{color:var(--r)}label.b{color:var(--b)}
+input{width:100%;padding:10px;background:#000;color:var(--tx);border:1px solid var(--line);border-radius:8px;font-size:16px}
+#info{margin-top:10px;font-size:13px;color:var(--mut);min-height:40px}
+#info b.r{color:var(--r)}#info b.b{color:var(--b)}
+.wrap{position:relative;width:min(92vw,440px);margin:16px auto 8px}
+.wrap canvas{width:100%;aspect-ratio:1;display:block}
+.ptr{position:absolute;left:50%;top:-6px;transform:translateX(-50%);width:0;height:0;border-left:12px solid transparent;border-right:12px solid transparent;border-top:24px solid var(--gold);z-index:2;filter:drop-shadow(0 0 4px #000)}
+#go{display:block;width:100%;padding:14px;font-size:18px;font-weight:700;border:0;border-radius:12px;background:var(--gold);color:#000}
+#go:disabled{opacity:.35}
+#res{text-align:center;font-size:20px;font-weight:700;margin:14px 0 4px;min-height:34px}
+#hist{text-align:center;font-size:12px;color:var(--mut)}
+[hidden]{display:none!important}
+.tabs{display:flex;gap:8px;margin-bottom:12px}
+.tabs button,.seg button{flex:1;padding:11px 4px;font-size:15px;background:var(--card);color:var(--tx);border:1px solid var(--line);border-radius:10px}
+.tabs button.on,.seg button.on{background:var(--gold);color:#000;border-color:var(--gold);font-weight:700}
+.seg{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:4px}.seg button{padding:9px 10px;font-size:14px}
+#dm label{color:var(--mut);margin-top:8px}
+.two{display:flex;gap:10px;margin:14px 0 10px}.side{flex:1;min-width:0;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:8px;text-align:center}
+.side h3{margin:2px 0 8px;font-size:15px}
+.wrap2{position:relative;width:min(40vw,210px);margin:8px auto 6px}.wrap2 canvas{width:100%;aspect-ratio:1;display:block}
+.ptr2{position:absolute;left:50%;top:-5px;transform:translateX(-50%);border-left:8px solid transparent;border-right:8px solid transparent;border-top:16px solid var(--gold);z-index:2}
+.go2{width:100%;padding:9px;font-size:15px;font-weight:700;border:0;border-radius:8px;background:var(--gold);color:#000}
+.r2{min-height:28px;margin-top:8px;font-size:16px;font-weight:700}
+.lg{text-align:left;font-size:12px;color:var(--mut);margin-top:4px}.lg i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px}
+#dNote{font-size:12px;color:var(--gold);min-height:18px;margin-top:6px}
+</style>
+</head>
+<body>
+<h1>🎯 轉盤</h1>
+<div class="tabs"><button class="on" data-mode="pw">戰力轉盤</button><button data-mode="dm">戰損轉盤</button></div>
+<div id="pw">
+<div class="card">
+  <div class="row">
+    <div><label class="r">紅方戰力</label><input id="a" type="number" inputmode="decimal" min="0" step="any" placeholder="例如 300"></div>
+    <div><label class="b">藍方戰力</label><input id="b" type="number" inputmode="decimal" min="0" step="any" placeholder="例如 700"></div>
+  </div>
+  <div id="info">輸入雙方戰力後，轉盤會依比例分成紅、藍兩色。</div>
+</div>
+<div class="wrap"><div class="ptr"></div><canvas id="cv"></canvas></div>
+<button id="go" disabled>🎲 轉！</button>
+<div id="res"></div>
+<div id="hist"></div>
+</div>
+<div id="dm" hidden>
+  <div class="card">
+    <label style="margin-top:0">軍種</label><div class="seg" id="dArm"></div>
+    <label>戰事類別</label><div class="seg" id="dCat"></div>
+    <div id="dNote"></div>
+  </div>
+  <div class="two" id="two"></div>
+  <button id="gb">🎲 兩邊一起轉</button>
+</div>
+<script>
+const $=id=>document.getElementById(id);
+let rot=0,spinning=false,hist=[];
+// 紅方分子 ÷ 雙方加總，無條件進位到千分率（1000 格）
+function split(){
+  const A=Math.max(0,+$('a').value||0),B=Math.max(0,+$('b').value||0),T=A+B;
+  if(T<=0)return null;
+  const raw=A/T*1000;
+  const r=Math.min(1000,Math.max(0,Math.ceil(raw-1e-9)));
+  return{A,B,T,pct:A/T*100,r,b:1000-r};
+}
+function draw(){
+  const cv=$('cv'),s=cv.clientWidth,d=window.devicePixelRatio||1;
+  cv.width=cv.height=Math.round(s*d);
+  const c=cv.getContext('2d');c.scale(d,d);
+  const x=s/2,R=x-4,sp=split(),r=sp?sp.r:500,a0=-Math.PI/2,TAU=Math.PI*2;
+  c.translate(x,x);c.rotate(rot*Math.PI/180);
+  const seg=(f,t,col)=>{if(t<=f)return;c.beginPath();c.moveTo(0,0);c.arc(0,0,R,a0+f/1000*TAU,a0+t/1000*TAU);c.closePath();c.fillStyle=col;c.fill()};
+  seg(0,r,'#e5484d');seg(r,1000,'#3b82f6');
+  // 刻度：每 10‰ 一小格、每 100‰ 一大格
+  c.strokeStyle='rgba(0,0,0,.55)';
+  for(let i=0;i<1000;i+=10){
+    const an=a0+i/1000*TAU,len=i%100===0?s*0.05:s*0.02;
+    c.lineWidth=i%100===0?2:1;
+    c.beginPath();c.moveTo(Math.cos(an)*R,Math.sin(an)*R);c.lineTo(Math.cos(an)*(R-len),Math.sin(an)*(R-len));c.stroke();
+  }
+  // 紅藍分界線
+  if(r>0&&r<1000){c.strokeStyle='#fff';c.lineWidth=2;for(const k of [0,r]){const an=a0+k/1000*TAU;c.beginPath();c.moveTo(0,0);c.lineTo(Math.cos(an)*R,Math.sin(an)*R);c.stroke()}}
+  c.beginPath();c.arc(0,0,R,0,TAU);c.strokeStyle='#333';c.lineWidth=3;c.stroke();
+  c.beginPath();c.arc(0,0,s*0.03,0,TAU);c.fillStyle='#000';c.fill();
+}
+function info(){
+  const sp=split();
+  $('go').disabled=!sp||spinning;
+  $('info').innerHTML=sp
+    ?`紅方 ${+sp.A.toFixed(3)} ÷ ${+sp.T.toFixed(3)} × 100% ＝ ${sp.pct.toFixed(3)}%<br>無條件進位到千分率：<b class="r">紅 ${sp.r}‰（${(sp.r/10).toFixed(1)}%）</b>　<b class="b">藍 ${sp.b}‰（${(sp.b/10).toFixed(1)}%）</b>`
+    :'輸入雙方戰力後，轉盤會依比例分成紅、藍兩色。';
+  draw();
+}
+function spin(){
+  const sp=split();if(!sp||spinning)return;
+  spinning=true;$('go').disabled=true;$('res').textContent='';
+  const buf=new Uint32Array(1);
+  do{crypto.getRandomValues(buf)}while(buf[0]>=4294967000);
+  const n=buf[0]%1000+1;                       // 抽中第 1–1000 格
+  const center=(n-0.5)/1000*360+(Math.random()-0.5)*0.3;
+  const cur=rot%360,delta=(((-center-cur)%360)+360)%360;
+  const from=rot,to=rot+360*6+delta,dur=6000,t0=performance.now();
+  (function f(t){
+    const p=Math.min(1,(t-t0)/dur),e=1-Math.pow(1-p,4);
+    rot=from+(to-from)*e;draw();
+    if(p<1)return requestAnimationFrame(f);
+    rot=to%360;spinning=false;
+    const red=n<=sp.r;
+    $('res').innerHTML=`第 ${n} 格　→　<span style="color:var(--${red?'r':'b'})">${red?'紅方勝':'藍方勝'}</span>`;
+    hist.unshift((red?'🔴':'🔵')+n);hist=hist.slice(0,8);
+    $('hist').textContent='最近結果：'+hist.join('　');
+    info();
+  })(t0);
+}
+$('a').addEventListener('input',info);$('b').addEventListener('input',info);
+$('go').addEventListener('click',spin);
+// ===== 戰損轉盤（第五、七、九條）=====
+// 格式：[類別, [左側名稱, 右側名稱], 左側機率(%), 右側機率(%), 備註]；機率依序對應 steps 的四個折損梯段
+const G=['攻方','守方'],SW=['登陸戰'];
+const DM={
+ ground:{n:'🪖 陸',steps:['−99%','−60%','−40%','−20%'],cats:[
+  ['登陸戰',G,[30,35,25,10],[5,15,40,40],''],
+  ['塹壕戰',G,[20,30,30,20],[10,25,35,30],'攻守可互換，請雙方自行協調；互換時折損表欄位隨之互換'],
+  ['遭遇戰',G,[10,20,35,35],[10,20,35,35],'攻守可互換，請雙方自行協調；互換時折損表欄位隨之互換'],
+  ['要塞戰',G,[35,35,20,10],[5,10,35,50],'攻守不得互換']]},
+ air:{n:'✈ 空',steps:['−100%','−75%','−50%','−25%'],cats:[
+  ['制空權爭奪',['主動方','攔截方'],[15,25,35,25],[10,20,35,35],''],
+  ['戰略轟炸與護航',['轟炸方','攔截方'],[20,30,30,20],[5,15,35,45],''],
+  ['對地／艦攻擊',['攻擊方','被攻擊方'],[15,25,30,30],[5,15,30,50],'']]},
+ sea:{n:'⚓ 海',steps:['−100%','−75%','−50%','−25%'],cats:[
+  ['制海權爭奪',['主動方','被動方'],[15,25,35,25],[10,20,35,35],''],
+  ['護航與破交',['破交方','護航方'],[20,30,30,20],[5,15,35,45],''],
+  ['登陸支援與岸轟',['支援方','岸防方'],[10,20,35,35],[15,25,35,25],'']]}
+};
+const COL=[['#7f1d1d','#b91c1c','#e5484d','#ff8a8a'],['#1e3a8a','#2563eb','#3b82f6','#93c5fd']];
+let arm='ground',cat=0,rotD=[0,0],busy=[false,false];
+const dSegs=i=>{const k=DM[arm];return k.cats[cat][2+i].map((p,j)=>({l:k.steps[j],p,c:COL[i][j],j}))};
+function dDraw(i){
+  const cv=$('c'+i),s=cv.clientWidth;if(!s)return;
+  const d=window.devicePixelRatio||1;cv.width=cv.height=Math.round(s*d);
+  const c=cv.getContext('2d');c.scale(d,d);
+  const x=s/2,R=x-3,a0=-Math.PI/2,T=Math.PI*2;let acc=0;
+  c.translate(x,x);c.rotate(rotD[i]*Math.PI/180);
+  for(const g of dSegs(i)){
+    const f=a0+acc/100*T,t=a0+(acc+g.p)/100*T;
+    c.beginPath();c.moveTo(0,0);c.arc(0,0,R,f,t);c.closePath();c.fillStyle=g.c;c.fill();c.strokeStyle='#000';c.lineWidth=1.5;c.stroke();
+    if(g.p>=8){c.save();c.rotate((f+t)/2);c.fillStyle=g.j===3?'#000':'#fff';c.font='bold 11px sans-serif';c.textAlign='center';c.textBaseline='middle';c.fillText(g.l,R*0.62,0);c.restore()}
+    acc+=g.p;
+  }
+  c.beginPath();c.arc(0,0,s*.04,0,T);c.fillStyle='#000';c.fill();
+}
+function dRender(){
+  const k=DM[arm],c=k.cats[cat];
+  $('dArm').innerHTML=Object.keys(DM).map(a=>`<button data-arm="${a}" class="${a===arm?'on':''}">${DM[a].n}</button>`).join('');
+  $('dCat').innerHTML=k.cats.map((x,j)=>`<button data-cat="${j}" class="${j===cat?'on':''}">${x[0]}</button>`).join('');
+  $('dNote').textContent=c[4];
+  for(let i=0;i<2;i++){
+    $('n'+i).textContent=c[1][i];$('n'+i).style.color=i?'var(--b)':'var(--r)';
+    $('l'+i).innerHTML=dSegs(i).map(g=>`<div><i style="background:${g.c}"></i>${g.l}　${g.p}%</div>`).join('');
+    $('r'+i).textContent='';dDraw(i);
+  }
+}
+function dSpin(i){
+  if(busy[i])return;busy[i]=true;$('r'+i).textContent='';
+  const buf=new Uint32Array(1);do{crypto.getRandomValues(buf)}while(buf[0]>=4294967200);
+  const n=buf[0]%100+1,segs=dSegs(i);let acc=0,k=0;
+  while(k<3&&n>acc+segs[k].p){acc+=segs[k].p;k++}
+  const center=(n-0.5)/100*360+(Math.random()-0.5)*1.0;
+  const cur=rotD[i]%360,delta=(((-center-cur)%360)+360)%360;
+  const from=rotD[i],to=from+360*5+delta,dur=4500,t0=performance.now();
+  (function f(t){
+    const p=Math.min(1,(t-t0)/dur);rotD[i]=from+(to-from)*(1-Math.pow(1-p,4));dDraw(i);
+    if(p<1)return requestAnimationFrame(f);
+    rotD[i]=to%360;busy[i]=false;
+    $('r'+i).innerHTML=`<span style="color:var(--${i?'b':'r'})">折損 ${segs[k].l}</span>`;
+  })(t0);
+}
+$('two').innerHTML=[0,1].map(i=>`<div class="side"><h3 id="n${i}"></h3><div class="wrap2"><div class="ptr2"></div><canvas id="c${i}"></canvas></div><button class="go2" data-spin="${i}">轉</button><div class="r2" id="r${i}"></div><div class="lg" id="l${i}"></div></div>`).join('');
+document.addEventListener('click',e=>{
+  const t=e.target.closest('button');if(!t)return;const d=t.dataset;
+  if(d.mode){
+    $('pw').hidden=d.mode!=='pw';$('dm').hidden=d.mode!=='dm';
+    document.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('on',b===t));
+    if(d.mode==='dm')dRender();else draw();
+  }
+  if(d.arm){arm=d.arm;cat=0;dRender()}
+  if(d.cat!=null){cat=+d.cat;dRender()}
+  if(d.spin!=null)dSpin(+d.spin);
+  if(t.id==='gb'){dSpin(0);dSpin(1)}
+});
+addEventListener('resize',()=>{draw();dDraw(0);dDraw(1)});
+info();
+</script>
+</body>
+</html>
